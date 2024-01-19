@@ -2,28 +2,10 @@
 #include <SFML/Graphics.hpp>
 #include <random>
 #include <chrono>
+#include "state.h"
 
-#define WIDTH 800
-#define HEIGHT 600
-#define CANVAS_WIDTH 100
-#define CANVAS_HEIGHT 75
-#define SIZE 1
-#define FPS 20
+struct State globalState; // Global game state
 
-
-struct State {
-    
-    sf::RenderWindow window;
-    sf::RenderTexture canvas;
-    State(){
-        window.create(sf::VideoMode({WIDTH, HEIGHT}, 8), "Sanke");
-        window.setFramerateLimit(FPS);
-        if (!canvas.create({CANVAS_WIDTH, CANVAS_HEIGHT})){
-            std::cerr << "Unable to create render texture" << std::endl;
-        }
-    }
-};
-State state;
 class GameObject {
 protected:
     sf::Vector2f pos;
@@ -38,13 +20,15 @@ public:
         pos = newPos; 
         rect.setPosition(pos);
     }
-    virtual void draw(void) { state.canvas.draw(rect); }
+    virtual void draw(void) { globalState.canvas.draw(rect); }
 };
+
+
 class Segment: public GameObject {
 private:
     Segment* next;
 public:
-    Segment(sf::Vector2f pos): GameObject(pos, sf::Color::White), next(nullptr){ }
+    Segment(sf::Vector2f pos): GameObject(pos, sf::Color(30, 200, 80)), next(nullptr){ }
     void setNext(Segment* segment){ next = segment; }
 
     void extend() {
@@ -54,30 +38,25 @@ public:
         }
         next->extend();
     }
-    bool overlaps(sf::Vector2f oPos){
-        if (next == nullptr){
-            return false;
-        } else if (next->pos == oPos){
-            return true;
-        } 
-        return next->overlaps(oPos);
-    
-    }  
 
+    bool overlaps(sf::Vector2f oPos){
+        if (next == nullptr) return false;
+        else if (next->pos == oPos) return true; 
+        return next->overlaps(oPos);
+    }
+    
     void removeLast(void){
-        if (next == nullptr){
-            return;
-        } else if (next->next == nullptr){
+        if (next == nullptr) return;
+        else if (next->next == nullptr){
             delete next;
             next = nullptr;
             return;
-        } else {
-            next->removeLast();
         }
+        next->removeLast();
     }
 
     void draw() override {
-        state.canvas.draw(rect);
+        globalState.canvas.draw(rect);
         if (next != nullptr) next->draw();
     }
 };
@@ -86,14 +65,12 @@ class Snake {
 private: 
     Segment* head;
     sf::Vector2f dir;
-
 public:
     Snake(sf::Vector2f pos): head(new Segment(pos)), dir({1,0}) { }
 
     Segment* getHead() { return head; } 
 
     void setDir(sf::Vector2f newDir){
-        // Can't make 180 degree turn.
         float dot = newDir.x * dir.x + newDir.y * dir.y;
         if (dot >= 0 && dot <= std::sqrt(3)/2) {
             dir = newDir;
@@ -106,10 +83,12 @@ public:
 
     void move(){
         sf::Vector2f pos = head->getPos() + sf::Vector2f({ dir.x, dir.y });
+
         if (pos.x >= CANVAS_WIDTH) pos.x = 0;
         if (pos.y >= CANVAS_HEIGHT) pos.y = 0;
         if (pos.x < 0) pos.x = CANVAS_WIDTH - 1;
         if (pos.y < 0) pos.y = CANVAS_HEIGHT - 1;
+
         Segment* newHead = new Segment(pos);
         newHead->setNext(head);
         head = newHead;
@@ -119,14 +98,13 @@ public:
     void extend(void){ head->extend(); }
 };
 
-
 sf::Vector2f getDir(void){
-    float dX = (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::A) ? -1 : (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::D) ? 1 : 0.0f));
-    float dY = (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::W) ? 1 : (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::S) ? -1 : 0.0f));
+    float dX = (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::A) ? -1 : 
+        (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::D) ? 1 : 0.0f));
+    float dY = (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::W) ? 1 :
+        (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::S) ? -1 : 0.0f));
     return sf::Vector2f(dX, dY);
 }
-
-
 
 float GetRandom(float min, float max) {
     unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
@@ -136,53 +114,48 @@ float GetRandom(float min, float max) {
 }
 
 int main(void){
-
     Snake snake({40, 40});
-    float fX = GetRandom(0, CANVAS_WIDTH);
-    float fY = GetRandom(0, CANVAS_HEIGHT);
-    GameObject food({fX, fY}, sf::Color::Green);
+    float fX = GetRandom(0, CANVAS_WIDTH- 1);
+    float fY = GetRandom(0, CANVAS_HEIGHT - 1);
+    GameObject food({fX, fY}, sf::Color(200, 80, 80));
 
-    while (state.window.isOpen()){
+    while (globalState.window.isOpen()){
         sf::Event event;
-        while (state.window.pollEvent(event)) {
+        while (globalState.window.pollEvent(event)) {
             if (event.type == sf::Event::Closed) {
-                state.window.close();
+                globalState.window.close();
             }
         }
 
-        // Clear window with gray
-        state.canvas.clear(sf::Color(20,20,20));
-
-
+        globalState.canvas.clear(sf::Color(80,80,80));
 
         // Game logic
         sf::Vector2f dir = getDir();
         if (dir.x != 0 || dir.y != 0) {
             snake.setDir(dir);
         }
+
         snake.move();
 
         if (snake.isColliding()) break;
 
         if (snake.getHead()->getPos() == food.getPos()){
             snake.extend();
-            float nX = GetRandom(0, CANVAS_WIDTH);
-            float nY = GetRandom(0, CANVAS_HEIGHT);
+            float nX = GetRandom(0, CANVAS_WIDTH - 1);
+            float nY = GetRandom(0, CANVAS_HEIGHT - 1);
             std::cout << nX << ", " << nY << std::endl;
             food.setPos({nX, nY});
         }
-
         food.draw();
         snake.draw();
-        sf::Sprite canvasSprite(state.canvas.getTexture());
+    
+        sf::Sprite canvasSprite(globalState.canvas.getTexture());
         canvasSprite.setScale({
             static_cast<float>(WIDTH) / static_cast<float>(CANVAS_WIDTH), 
             static_cast<float>(HEIGHT) / static_cast<float>(CANVAS_HEIGHT)
         });
 
-        state.window.draw(canvasSprite);
-        state.window.display();
-
+        globalState.window.draw(canvasSprite);
+        globalState.window.display();
     }
-    
 }
